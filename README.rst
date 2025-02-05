@@ -10,6 +10,9 @@ aioesphomeapi
 .. image:: https://codecov.io/gh/esphome/aioesphomeapi/branch/main/graph/badge.svg
    :target: https://app.codecov.io/gh/esphome/aioesphomeapi/tree/main
 
+.. image:: https://img.shields.io/endpoint?url=https://codspeed.io/badge.json
+   :target: https://codspeed.io/esphome/aioesphomeapi
+
 ``aioesphomeapi`` allows you to interact with devices flashed with `ESPHome <https://esphome.io/>`_.
 
 Installation
@@ -122,7 +125,7 @@ For development is recommended to use a Python virtual environment (``venv``).
     $ source bin/activate
     # Install aioesphomeapi and development depenencies
     $ pip3 install -e .
-    $ pip3 install -r requirements_test.txt
+    $ pip3 install -r requirements/test.txt
 
     # Run linters & test
     $ script/lint

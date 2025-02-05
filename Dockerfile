@@ -22,7 +22,7 @@ USER esphome
 
 WORKDIR /aioesphomeapi
 
-COPY requirements_test.txt ./
+COPY requirements/test.txt ./requirements_test.txt
 
 RUN pip3 install -r requirements_test.txt
 
