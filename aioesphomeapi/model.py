@@ -823,21 +823,20 @@ class MediaPlayerCommand(APIIntEnum):
     UNMUTE = 4
     TOGGLE = 5
     VOLUME_UP = 6
-    VOLUME_DOWN = 7
-    NEXT_TRACK = 8
-    PREVIOUS_TRACK = 9
-    TURN_ON = 10
-    TURN_OFF = 11
-
-    CLEAR_PLAYLIST = 12
-    SHUFFLE = 13
-    UNSHUFFLE = 14
-    REPEAT_OFF = 15
-    REPEAT_ONE = 16
-    REPEAT_ALL = 17
-    JOIN = 18
-    UNJOIN = 19
-
+    VOLUME_DOWN = 7    
+    ENQUEUE = 8,
+    REPEAT_ONE = 9,
+    REPEAT_OFF = 10,
+    CLEAR_PLAYLIST = 11,
+    NEXT_TRACK = 12,
+    PREVIOUS_TRACK = 13,
+    TURN_ON = 14,
+    TURN_OFF = 15,
+    SHUFFLE = 16,
+    UNSHUFFLE = 17,
+    REPEAT_ALL = 18,
+    JOIN = 19,
+    UNJOIN = 20,
 
 class MediaPlayerFormatPurpose(APIIntEnum):
     DEFAULT = 0
