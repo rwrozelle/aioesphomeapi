@@ -894,6 +894,7 @@ class MediaPlayerEntityState(EntityState):
     title: str = ""
     duration: int = 0
     position: int = 0
+    thumbnail_url: str = ""
 
 
 # ==================== ALARM CONTROL PANEL ====================

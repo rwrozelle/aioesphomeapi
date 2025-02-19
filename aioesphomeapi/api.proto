@@ -1204,6 +1204,7 @@ message MediaPlayerStateResponse {
   string title = 9;
   int32 duration = 10;
   int32 position = 11;
+  string thumbnail_url = 12;
 }
 message MediaPlayerCommandRequest {
   option (id) = 65;
