@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Generator
+from contextlib import contextmanager
 from dataclasses import replace
 from functools import partial
+import reprlib
 import socket
 from typing import Callable
-from unittest.mock import MagicMock, create_autospec, patch
+from unittest.mock import AsyncMock, MagicMock, create_autospec, patch
 
 import pytest
 import pytest_asyncio
@@ -27,6 +30,15 @@ from .common import (
 
 KEEP_ALIVE_INTERVAL = 15.0
 
+_MOCK_RESOLVE_RESULT = [
+    AddrInfo(
+        family=socket.AF_INET,
+        type=socket.SOCK_STREAM,
+        proto=socket.IPPROTO_TCP,
+        sockaddr=IPv4Sockaddr("10.0.0.512", 6052),
+    )
+]
+
 
 class PatchableAPIConnection(APIConnection):
     pass
@@ -38,16 +50,9 @@ def async_zeroconf():
 
 
 @pytest.fixture
-def resolve_host():
+def resolve_host() -> Generator[AsyncMock]:
     with patch("aioesphomeapi.host_resolver.async_resolve_host") as func:
-        func.return_value = [
-            AddrInfo(
-                family=socket.AF_INET,
-                type=socket.SOCK_STREAM,
-                proto=socket.IPPROTO_TCP,
-                sockaddr=IPv4Sockaddr("10.0.0.512", 6052),
-            )
-        ]
+        func.return_value = _MOCK_RESOLVE_RESULT
         yield func
 
 
@@ -160,6 +165,7 @@ async def plaintext_connect_task_no_login(
         connect_task = asyncio.create_task(connect(conn, login=False))
         await connected.wait()
         yield conn, transport, conn._frame_helper, connect_task
+        conn.force_disconnect()
 
 
 @pytest_asyncio.fixture(name="plaintext_connect_task_expected_name")
@@ -187,6 +193,7 @@ async def plaintext_connect_task_no_login_with_expected_name(
             conn_with_expected_name._frame_helper,
             connect_task,
         )
+        conn_with_expected_name.force_disconnect()
 
 
 @pytest_asyncio.fixture(name="plaintext_connect_task_with_login")
@@ -212,6 +219,7 @@ async def plaintext_connect_task_with_login(
             conn_with_password._frame_helper,
             connect_task,
         )
+        conn_with_password.force_disconnect()
 
 
 @pytest_asyncio.fixture(name="api_client")
@@ -244,3 +252,49 @@ async def api_client(
         await connect_task
         transport.reset_mock()
         yield client, conn, transport, protocol
+        conn.force_disconnect()
+
+
+def get_scheduled_timer_handles(
+    loop: asyncio.AbstractEventLoop,
+) -> list[asyncio.TimerHandle]:
+    """Return a list of scheduled TimerHandles."""
+    handles: list[asyncio.TimerHandle] = loop._scheduled  # type: ignore[attr-defined]
+    return handles
+
+
+@contextmanager
+def long_repr_strings() -> Generator[None]:
+    """Increase reprlib maxstring and maxother to 300."""
+    arepr = reprlib.aRepr
+    original_maxstring = arepr.maxstring
+    original_maxother = arepr.maxother
+    arepr.maxstring = 300
+    arepr.maxother = 300
+    try:
+        yield
+    finally:
+        arepr.maxstring = original_maxstring
+        arepr.maxother = original_maxother
+
+
+@pytest.fixture(autouse=True)
+def verify_no_lingering_tasks(
+    event_loop: asyncio.AbstractEventLoop,
+) -> Generator[None]:
+    """Verify that all tasks are cleaned up."""
+    tasks_before = asyncio.all_tasks(event_loop)
+    yield
+
+    tasks = asyncio.all_tasks(event_loop) - tasks_before
+    for task in tasks:
+        pytest.fail(f"Task still running: {task!r}")
+        task.cancel()
+    if tasks:
+        event_loop.run_until_complete(asyncio.wait(tasks))
+
+    for handle in get_scheduled_timer_handles(event_loop):
+        if not handle.cancelled():
+            with long_repr_strings():
+                pytest.fail(f"Lingering timer after test {handle!r}")
+                handle.cancel()

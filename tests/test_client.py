@@ -220,13 +220,15 @@ async def test_finish_connection_wraps_exceptions_as_unhandled_api_error(
     with patch("aioesphomeapi.client.APIConnection", PatchableAPIConnection):
         await cli.start_connection()
 
-    with patch.object(
-        cli._connection,
-        "send_messages_await_response_complex",
-        side_effect=Exception("foo"),
+    with (
+        patch.object(
+            cli._connection,
+            "send_messages_await_response_complex",
+            side_effect=Exception("foo"),
+        ),
+        pytest.raises(UnhandledAPIConnectionError, match="foo"),
     ):
-        with pytest.raises(UnhandledAPIConnectionError, match="foo"):
-            await cli.finish_connection(False)
+        await cli.finish_connection(False)
 
 
 @pytest.mark.asyncio
@@ -285,7 +287,7 @@ async def test_request_while_handshaking() -> None:
     class PatchableApiClient(APIClient):
         pass
 
-    cli = PatchableApiClient("host", 1234, None)
+    cli = PatchableApiClient("127.0.0.1", 1234, None)
     with (
         patch(
             "aioesphomeapi.connection.aiohappyeyeballs.start_connection",

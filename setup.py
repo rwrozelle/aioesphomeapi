@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """aioesphomeapi setup script."""
 
+import contextlib
 from distutils.command.build_ext import build_ext
 import os
+from typing import Any
 
 from setuptools import find_packages, setup
 
@@ -12,7 +14,7 @@ with open(os.path.join(here, "README.rst"), encoding="utf-8") as readme_file:
     long_description = readme_file.read()
 
 
-VERSION = "29.0.1"
+VERSION = "29.1.1"
 PROJECT_NAME = "aioesphomeapi"
 PROJECT_PACKAGE_NAME = "aioesphomeapi"
 PROJECT_LICENSE = "MIT"
@@ -70,14 +72,12 @@ setup_kwargs = {
 
 
 class OptionalBuildExt(build_ext):
-    def build_extensions(self):
-        try:
+    def build_extensions(self) -> None:
+        with contextlib.suppress(Exception):
             super().build_extensions()
-        except Exception:
-            pass
 
 
-def cythonize_if_available(setup_kwargs):
+def cythonize_if_available(setup_kwargs: dict[str, Any]) -> None:
     if os.environ.get("SKIP_CYTHON", False):
         return
     try:
@@ -95,7 +95,6 @@ def cythonize_if_available(setup_kwargs):
     except Exception:
         if os.environ.get("REQUIRE_CYTHON"):
             raise
-        pass
 
 
 cythonize_if_available(setup_kwargs)

@@ -9,17 +9,15 @@ from typing import TYPE_CHECKING, Any
 
 from chacha20poly1305_reuseable import ChaCha20Poly1305Reusable
 from cryptography.exceptions import InvalidTag
-from noise.backends.default import DefaultNoiseBackend  # type: ignore[import-untyped]
-from noise.backends.default.ciphers import (  # type: ignore[import-untyped]
-    ChaCha20Cipher,
-    CryptographyCipher,
-)
-from noise.connection import NoiseConnection  # type: ignore[import-untyped]
-from noise.state import CipherState  # type: ignore[import-untyped]
+from noise.backends.default import DefaultNoiseBackend
+from noise.backends.default.ciphers import ChaCha20Cipher, CryptographyCipher
+from noise.connection import NoiseConnection
+from noise.state import CipherState
 
 from ..core import (
     APIConnectionError,
     BadNameAPIError,
+    EncryptionErrorAPIError,
     HandshakeAPIError,
     InvalidEncryptionKeyAPIError,
     ProtocolAPIError,
@@ -42,7 +40,7 @@ class ChaCha20CipherReuseable(ChaCha20Cipher):  # type: ignore[misc]
 
     @property
     def klass(self) -> type[ChaCha20Poly1305Reusable]:
-        return ChaCha20Poly1305Reusable
+        return ChaCha20Poly1305Reusable  # type: ignore[no-any-return, unused-ignore]
 
 
 class ESPHomeNoiseBackend(DefaultNoiseBackend):  # type: ignore[misc]
@@ -75,7 +73,7 @@ int_ = int
 class EncryptCipher:
     """Wrapper around the ChaCha20Poly1305 cipher for encryption."""
 
-    __slots__ = ("_nonce", "_encrypt")
+    __slots__ = ("_encrypt", "_nonce")
 
     def __init__(self, cipher_state: CipherState) -> None:
         """Initialize the cipher wrapper."""
@@ -88,13 +86,13 @@ class EncryptCipher:
         """Encrypt a frame."""
         ciphertext = self._encrypt(PACK_NONCE(self._nonce), data, None)
         self._nonce += 1
-        return ciphertext
+        return ciphertext  # type: ignore[no-any-return, unused-ignore]
 
 
 class DecryptCipher:
     """Wrapper around the ChaCha20Poly1305 cipher for decryption."""
 
-    __slots__ = ("_nonce", "_decrypt")
+    __slots__ = ("_decrypt", "_nonce")
 
     def __init__(self, cipher_state: CipherState) -> None:
         """Initialize the cipher wrapper."""
@@ -107,20 +105,20 @@ class DecryptCipher:
         """Decrypt a frame."""
         plaintext = self._decrypt(PACK_NONCE(self._nonce), data, None)
         self._nonce += 1
-        return plaintext
+        return plaintext  # type: ignore[no-any-return, unused-ignore]
 
 
 class APINoiseFrameHelper(APIFrameHelper):
     """Frame helper for noise encrypted connections."""
 
     __slots__ = (
-        "_noise_psk",
-        "_expected_name",
-        "_state",
-        "_server_name",
-        "_proto",
-        "_encrypt_cipher",
         "_decrypt_cipher",
+        "_encrypt_cipher",
+        "_expected_name",
+        "_noise_psk",
+        "_proto",
+        "_server_name",
+        "_state",
     )
 
     def __init__(
@@ -160,12 +158,6 @@ class APINoiseFrameHelper(APIFrameHelper):
                 f"{self._log_name}: The connection dropped immediately after encrypted hello; "
                 "Try enabling encryption on the device or turning off "
                 f"encryption on the client ({self._client_info})."
-            )
-            exc.__cause__ = original_exc
-        elif isinstance(exc, InvalidTag):
-            original_exc = exc
-            exc = InvalidEncryptionKeyAPIError(
-                f"{self._log_name}: Invalid encryption key", self._server_name
             )
             exc.__cause__ = original_exc
         super()._handle_error(exc)
@@ -352,7 +344,18 @@ class APINoiseFrameHelper(APIFrameHelper):
         """Handle an incoming frame."""
         if TYPE_CHECKING:
             assert self._decrypt_cipher is not None, "Handshake should be complete"
-        msg = self._decrypt_cipher.decrypt(frame)
+        try:
+            msg = self._decrypt_cipher.decrypt(frame)
+        except InvalidTag:
+            # This shouldn't happen since we already checked the tag during handshake
+            # but it could happen if the server sends a bad frame see
+            # issue https://github.com/esphome/aioesphomeapi/issues/1044
+            self._handle_error_and_close(
+                EncryptionErrorAPIError(
+                    f"{self._log_name}: Encryption error", self._server_name
+                )
+            )
+            return
         # Message layout is
         # 2 bytes: message type
         # 2 bytes: message length

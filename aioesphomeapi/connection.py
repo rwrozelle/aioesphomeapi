@@ -46,20 +46,14 @@ from .core import (
     PingFailedAPIError,
     ProtocolAPIError,
     ReadFailedAPIError,
-    ResolveAPIError,
     SocketAPIError,
     SocketClosedAPIError,
     TimeoutAPIError,
     UnhandledAPIConnectionError,
 )
 from .model import APIVersion, message_types_to_names
+from .util import asyncio_timeout
 from .zeroconf import ZeroconfManager
-
-if sys.version_info[:2] < (3, 11):
-    from async_timeout import timeout as asyncio_timeout
-else:
-    from asyncio import timeout as asyncio_timeout
-
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -95,7 +89,6 @@ DISCONNECT_CONNECT_TIMEOUT = 5.0
 
 DISCONNECT_RESPONSE_TIMEOUT = 10.0
 HANDSHAKE_TIMEOUT = 30.0
-RESOLVE_TIMEOUT = 30.0
 CONNECT_REQUEST_TIMEOUT = 30.0
 
 # The connect timeout should be the maximum time we expect the esp to take
@@ -194,30 +187,30 @@ class APIConnection:
     """
 
     __slots__ = (
-        "_params",
-        "on_stop",
-        "_socket",
+        "_debug_enabled",
+        "_expected_disconnect",
+        "_fatal_exception",
+        "_finish_connect_future",
         "_frame_helper",
-        "api_version",
-        "connection_state",
-        "_message_handlers",
-        "log_name",
-        "_read_exception_futures",
-        "_ping_timer",
-        "_pong_timer",
+        "_handshake_complete",
         "_keep_alive_interval",
         "_keep_alive_timeout",
-        "_start_connect_future",
-        "_finish_connect_future",
-        "_fatal_exception",
-        "_expected_disconnect",
         "_loop",
+        "_message_handlers",
+        "_params",
+        "_ping_timer",
+        "_pong_timer",
+        "_read_exception_futures",
         "_send_pending_ping",
-        "is_connected",
-        "_handshake_complete",
-        "_debug_enabled",
-        "received_name",
+        "_socket",
+        "_start_connect_future",
+        "api_version",
         "connected_address",
+        "connection_state",
+        "is_connected",
+        "log_name",
+        "on_stop",
+        "received_name",
     )
 
     def __init__(
@@ -313,20 +306,6 @@ class APIConnection:
         """Enable or disable debug logging."""
         self._debug_enabled = enable
 
-    async def _connect_resolve_host(self) -> list[hr.AddrInfo]:
-        """Step 1 in connect process: resolve the address."""
-        try:
-            async with asyncio_timeout(RESOLVE_TIMEOUT):
-                return await hr.async_resolve_host(
-                    self._params.addresses,
-                    self._params.port,
-                    self._params.zeroconf_manager,
-                )
-        except asyncio_TimeoutError as err:
-            raise ResolveAPIError(
-                f"Timeout while resolving IP address for {self.log_name}"
-            ) from err
-
     async def _connect_socket_connect(self, addrs: list[hr.AddrInfo]) -> None:
         """Step 2 in connect process: connect the socket."""
         if self._debug_enabled:
@@ -378,7 +357,7 @@ class APIConnection:
         sock.setblocking(False)
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         try:
-            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_QUICKACK, 1)
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_QUICKACK, 1)  # type: ignore[attr-defined, unused-ignore]
         except AttributeError:
             _LOGGER.debug(
                 "%s: TCP_QUICKACK not supported",
@@ -407,8 +386,7 @@ class APIConnection:
                 self._socket.setsockopt(
                     socket.SOL_SOCKET, socket.SO_RCVBUF, new_buffer_size
                 )
-                return
-            except OSError as err:
+            except OSError as err:  # noqa: PERF203
                 if new_buffer_size <= MIN_BUFFER_SIZE:
                     _LOGGER.warning(
                         "%s: Unable to increase the socket receive buffer size to %s; "
@@ -420,6 +398,8 @@ class APIConnection:
                     )
                     return
                 new_buffer_size //= 2
+            else:
+                return
 
     async def _connect_init_frame_helper(self) -> None:
         """Step 3 in connect process: initialize the frame helper and init read loop."""
@@ -588,7 +568,12 @@ class APIConnection:
 
     async def _do_connect(self) -> None:
         """Do the actual connect process."""
-        await self._connect_socket_connect(await self._connect_resolve_host())
+        addrs_info = await hr.async_resolve_host(
+            self._params.addresses,
+            self._params.port,
+            self._params.zeroconf_manager,
+        )
+        await self._connect_socket_connect(addrs_info)
 
     async def start_connection(self) -> None:
         """Start the connection process.
@@ -912,13 +897,11 @@ class APIConnection:
                         msg_type_proto,
                     )
                 return
-            _LOGGER.error(
-                "%s: Invalid protobuf message: type=%s data=%s: %s",
+            _LOGGER.exception(
+                "%s: Invalid protobuf message: type=%s data=%s",
                 self.log_name,
                 klass.__name__,
                 data,
-                e,
-                exc_info=True,
             )
             self.report_fatal_error(
                 ProtocolAPIError(
@@ -1025,8 +1008,8 @@ class APIConnection:
                     DisconnectResponse,
                     timeout=DISCONNECT_RESPONSE_TIMEOUT,
                 )
-            except APIConnectionError as err:
-                _LOGGER.error("%s: disconnect request failed: %s", self.log_name, err)
+            except APIConnectionError:
+                _LOGGER.exception("%s: disconnect request failed", self.log_name)
 
         self._cleanup()
 
@@ -1038,11 +1021,10 @@ class APIConnection:
             # but don't wait for it to finish
             try:
                 self.send_messages((DISCONNECT_REQUEST_MESSAGE,))
-            except APIConnectionError as err:
-                _LOGGER.error(
-                    "%s: Failed to send (forced) disconnect request: %s",
+            except APIConnectionError:
+                _LOGGER.exception(
+                    "%s: Failed to send (forced) disconnect request",
                     self.log_name,
-                    err,
                 )
 
         self._cleanup()

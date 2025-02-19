@@ -64,6 +64,8 @@ def get_mock_async_zeroconf() -> AsyncZeroconf:
 class Estr(str):
     """A subclassed string."""
 
+    __slots__ = ()
+
 
 def generate_split_plaintext_packet(msg: message.Message) -> list[bytes]:
     type_ = PROTO_TO_MESSAGE_TYPE[msg.__class__]
@@ -98,10 +100,7 @@ def async_fire_time_changed(
     approach, as this is only for testing.
     """
     loop = asyncio.get_running_loop()
-    if datetime_ is None:
-        utc_datetime = datetime.now(UTC)
-    else:
-        utc_datetime = as_utc(datetime_)
+    utc_datetime = datetime.now(UTC) if datetime_ is None else as_utc(datetime_)
 
     timestamp = utc_datetime.timestamp()
     for task in list(loop._scheduled):
