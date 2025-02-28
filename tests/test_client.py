@@ -163,9 +163,17 @@ def patch_response_complex(client: APIClient, messages):
 def patch_response_callback(client: APIClient):
     on_message = None
 
+    def cancelled_on_message(_):
+        """A callback that does nothing."""
+
+    def cancel_callable():
+        nonlocal on_message
+        on_message = cancelled_on_message
+
     def patched(req, callback, msg_types):
         nonlocal on_message
         on_message = callback
+        return cancel_callable
 
     client._connection.send_message_callback_response = patched
 
@@ -1303,12 +1311,16 @@ async def test_device_info(
         name="realname",
         friendly_name="My Device",
         has_deep_sleep=True,
+        mac_address="AA:BB:CC:DD:EE:FB",
+        bluetooth_mac_address="AA:BB:CC:DD:EE:FF",
     )
     mock_data_received(protocol, generate_plaintext_packet(response))
     device_info = await device_info_task
     assert device_info.name == "realname"
     assert device_info.friendly_name == "My Device"
     assert device_info.has_deep_sleep
+    assert device_info.mac_address == "AA:BB:CC:DD:EE:FB"
+    assert device_info.bluetooth_mac_address == "AA:BB:CC:DD:EE:FF"
     assert client.log_name == "realname @ 10.0.0.512"
     disconnect_task = asyncio.create_task(client.disconnect())
     await asyncio.sleep(0)
@@ -1954,10 +1966,16 @@ async def test_subscribe_home_assistant_states(
 async def test_subscribe_logs(auth_client: APIClient) -> None:
     send = patch_response_callback(auth_client)
     on_logs = MagicMock()
-    auth_client.subscribe_logs(on_logs)
+    cancel = auth_client.subscribe_logs(on_logs)
     log_msg = SubscribeLogsResponse(level=1, message=b"asdf")
     await send(log_msg)
     on_logs.assert_called_with(log_msg)
+    on_logs.reset_mock()
+    cancel()
+    log_msg = SubscribeLogsResponse(level=1, message=b"asdf")
+    await send(log_msg)
+    on_logs.assert_not_called()
+    on_logs.reset_mock()
 
 
 @pytest.mark.asyncio
