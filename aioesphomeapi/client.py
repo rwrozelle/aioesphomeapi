@@ -1082,10 +1082,10 @@ class APIClient:
             req.warm_white = warm_white
         if transition_length is not None:
             req.has_transition_length = True
-            req.transition_length = int(round(transition_length * 1000))
+            req.transition_length = round(transition_length * 1000)
         if flash_length is not None:
             req.has_flash_length = True
-            req.flash_length = int(round(flash_length * 1000))
+            req.flash_length = round(flash_length * 1000)
         if effect is not None:
             req.has_effect = True
             req.effect = effect
@@ -1492,9 +1492,16 @@ class APIClient:
         media_id: str,
         timeout: float,
         text: str = "",
+        preannounce_media_id: str = "",
+        start_conversation: bool = False,
     ) -> VoiceAssistantAnnounceFinishedModel:
         resp = await self._get_connection().send_message_await_response(
-            VoiceAssistantAnnounceRequest(media_id=media_id, text=text),
+            VoiceAssistantAnnounceRequest(
+                media_id=media_id,
+                text=text,
+                preannounce_media_id=preannounce_media_id,
+                start_conversation=start_conversation,
+            ),
             VoiceAssistantAnnounceFinished,
             timeout,
         )

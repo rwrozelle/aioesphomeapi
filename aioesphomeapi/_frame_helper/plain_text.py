@@ -2,14 +2,11 @@ from __future__ import annotations
 
 import asyncio
 from functools import lru_cache
-from typing import TYPE_CHECKING
 
 from ..core import ProtocolAPIError, RequiresEncryptionAPIError
 from .base import APIFrameHelper
 
 _int = int
-
-EMPTY_PACKET = b""
 
 
 def _varuint_to_bytes(value: _int) -> bytes:
@@ -64,7 +61,8 @@ class APIPlaintextFrameHelper(APIFrameHelper):
 
     def data_received(self, data: bytes | bytearray | memoryview) -> None:
         self._add_to_buffer(data)
-        while self._buffer_len:
+        # Message header is at least 3 bytes, empty length allowed
+        while self._buffer_len >= 3:
             self._pos = 0
             # Read preamble, which should always 0x00
             if (preamble := self._read_varuint()) != 0x00:
@@ -75,20 +73,18 @@ class APIPlaintextFrameHelper(APIFrameHelper):
             if (msg_type := self._read_varuint()) == -1:
                 return
 
-            packet_data: bytes | None
             if length == 0:
-                packet_data = EMPTY_PACKET
-            else:
-                # The packet data is not yet available, wait for more data
-                # to arrive before continuing, since callback_packet has not
-                # been called yet the buffer will not be cleared and the next
-                # call to data_received will continue processing the packet
-                # at the start of the frame.
-                if (packet_data := self._read(length)) is None:
-                    return
-                if TYPE_CHECKING:
-                    assert packet_data is not None, "Packet data should be set"
+                self._remove_from_buffer()
+                self._connection.process_packet(msg_type, b"")
+                continue
 
+            # The packet data is not yet available, wait for more data
+            # to arrive before continuing, since callback_packet has not
+            # been called yet the buffer will not be cleared and the next
+            # call to data_received will continue processing the packet
+            # at the start of the frame.
+            if (packet_data := self._read(length)) is None:
+                return
             self._remove_from_buffer()
             self._connection.process_packet(msg_type, packet_data)
             # If we have more data, continue processing
